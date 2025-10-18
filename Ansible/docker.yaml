@@ -5,12 +5,13 @@
 
   vars:
     project_path: /home/ubuntu/petstore
-    repo_url: "https://github.com/mybatis/jpetstore-6.git"   # <-- apna repo URL yahan daalna
+    repo_url: "https://github.com/mybatis/jpetstore-6.git"
+    docker_image: "nida334/petstore:latest"
 
   tasks:
     - name: Update apt package cache
       apt:
-        update_cache: yes   
+        update_cache: yes
 
     - name: Ensure project directory exists
       file:
@@ -31,10 +32,10 @@
         chdir: "{{ project_path }}"
 
     - name: Tag Docker image
-      command: docker tag petstore zohaib56/petstore:latest 
+      command: docker tag petstore {{ docker_image }}
 
     - name: Scan Docker image with Trivy
-      command: trivy image zohaib56/petstore:latest
+      command: trivy image {{ docker_image }}
       args:
         chdir: "{{ project_path }}"
       register: trivy_scan
@@ -42,9 +43,9 @@
 
     - name: Save Trivy scan output to file
       copy:
-        content: "{{ trivy_scan.stdout }}"
+        content: "{{ trivy_scan.stdout | default('No scan output') }}"
         dest: "{{ project_path }}/trivy.txt"
-      when: trivy_scan.stdout is defined
+        mode: '0644'
 
     - name: Log in to Docker Hub
       community.docker.docker_login:
@@ -53,18 +54,22 @@
         password: "{{ DOCKER_PASSWORD }}"
 
     - name: Push Docker image
-      command: docker push zohaib56/petstore:latest
+      command: docker push {{ docker_image }}
 
-    - name: Remove existing Docker container
-      command: docker rm petstore -f || true
-      ignore_errors: true
-        
+    - name: Remove existing Docker container (if any)
+      command: docker rm -f petstore
+      ignore_errors: yes
+
     - name: Run Docker container
-      command: docker run -d --name petstore -p 8081:8080 zohaib56/petstore:latest
+      command: docker run -d --name petstore -p 8081:8080 {{ docker_image }}
       register: run_result
       ignore_errors: yes
 
-    - name: Log failure if the container failed to start
+    - name: Show container start result
       debug:
-        msg: "Failed to run container: {{ run_result.stderr }}"
-      when: run_result.rc != 0
+        msg: >-
+          {% if run_result.rc == 0 %}
+          ✅ Container started successfully and running on port 8081
+          {% else %}
+          ❌ Failed to run container: {{ run_result.stderr }}
+          {% endif %}
