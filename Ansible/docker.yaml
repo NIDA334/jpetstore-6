@@ -1,17 +1,34 @@
 ---
 - name: Docker build, scan, and push
-  hosts: local  # Replace with the hostname or IP address of your target server
-  become: yes  # Run tasks with sudo privileges
+  hosts: local
+  become: yes
+
+  vars:
+    project_path: /home/ubuntu/petstore
+    repo_url: "https://github.com/mybatis/jpetstore-6.git"   # <-- apna repo URL yahan daalna
 
   tasks:
     - name: Update apt package cache
       apt:
         update_cache: yes   
 
+    - name: Ensure project directory exists
+      file:
+        path: "{{ project_path }}"
+        state: directory
+        mode: '0755'
+
+    - name: Clone or update project from Git
+      git:
+        repo: "{{ repo_url }}"
+        dest: "{{ project_path }}"
+        version: master
+        force: yes
+
     - name: Build Docker Image
       command: docker build -t petstore .
       args:
-        chdir: /var/lib/jenkins/workspace/petstore
+        chdir: "{{ project_path }}"
 
     - name: Tag Docker image
       command: docker tag petstore zohaib56/petstore:latest 
@@ -19,16 +36,14 @@
     - name: Scan Docker image with Trivy
       command: trivy image zohaib56/petstore:latest
       args:
-        chdir: /var/lib/jenkins/workspace/petstore
+        chdir: "{{ project_path }}"
       register: trivy_scan
       ignore_errors: yes
 
     - name: Save Trivy scan output to file
       copy:
         content: "{{ trivy_scan.stdout }}"
-        dest: /var/lib/jenkins/workspace/petstore/trivy.txt
-        remote_src: yes
-        mode: 'a+'  # Append mode
+        dest: "{{ project_path }}/trivy.txt"
       when: trivy_scan.stdout is defined
 
     - name: Log in to Docker Hub
